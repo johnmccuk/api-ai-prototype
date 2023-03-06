@@ -70,16 +70,22 @@ resource "aws_api_gateway_integration" "integration" {
 # API Gateway HTTP
 ####################
 
-
+/*
 resource "aws_apigatewayv2_api" "main" {
   name          = "${random_pet.this.id}-api"
   protocol_type = "HTTP"
   tags          = local.tags
 }
 
-resource "aws_apigatewayv2_stage" "dev" {
+resource "aws_apigatewayv2_stage" "v1" {
   api_id      = aws_apigatewayv2_api.main.id
   name        = "v1"
+  auto_deploy = true
+}
+
+resource "aws_apigatewayv2_stage" "v2" {
+  api_id      = aws_apigatewayv2_api.main.id
+  name        = "v2"
   auto_deploy = true
 }
 
@@ -95,19 +101,21 @@ resource "aws_apigatewayv2_route" "default" {
   route_key = "POST /"
   target    = "integrations/${aws_apigatewayv2_integration.default_post.id}"
 }
+*/
 
-/*
+####################
+# API Gateway HTTP module
+####################
+
 module "api_gateway" {
   source = "terraform-aws-modules/apigateway-v2/aws"
 
-  name                        = "${random_pet.this.id}-api"
-  description                 = "API for prototyping AI"
-  protocol_type               = "HTTP"
-  domain_name                 = local.name
-  create_api_domain_name      = false
-  domain_name_certificate_arn = var.certificate_arn
-  //disable_execute_api_endpoint             = true
-  tags = local.tags
+  name                   = "${random_pet.this.id}-api"
+  description            = "API for prototyping AI"
+  protocol_type          = "HTTP"
+  domain_name            = local.name
+  create_api_domain_name = false
+  tags                   = local.tags
 
   default_route_settings = {
     detailed_metrics_enabled = true
@@ -125,37 +133,18 @@ module "api_gateway" {
   }
 
   integrations = {
-    "GET /" = {
+    /*
+    "POST /" = {
       lambda_arn               = module.lambda_function.lambda_function_arn
       payload_format_version   = "2.0"
       timeout_milliseconds     = 3000
       detailed_metrics_enabled = true
     }
-    /*
-    "GET /test" = {
-      lambda_arn               = module.lambda_function.lambda_function_arn
-      payload_format_version   = "2.0"
-      timeout_milliseconds     = 3000
-      detailed_metrics_enabled = true
-    }*/
-/*
-    "POST /" = {
-      integration_type    = "AWS_PROXY"
-      integration_subtype = "StepFunctions-StartExecution"
-      credentials_arn     = module.step_function.role_arn
+    */
 
-      # Note: jsonencode is used to pass argument as a string
-      request_parameters = jsonencode({
-        StateMachineArn = module.step_function.state_machine_arn
-      })
-
-      payload_format_version = "1.0"
-      timeout_milliseconds   = 12000
-    }*/
-/*
     "$default" = {
       lambda_arn = module.lambda_function.lambda_function_arn
-
+      /*
       response_parameters = jsonencode([
         {
           status_code = 500
@@ -171,9 +160,10 @@ module "api_gateway" {
           }
         }
       ])
+      */
     }
   }
-}*/
+}
 /*
 resource "aws_apigatewayv2_stage" "dev" {
   api_id = module.api_gateway.apigatewayv2_api_id
@@ -199,7 +189,7 @@ resource "aws_cloudwatch_log_group" "logs" {
 ####################
 # AWS Step Function
 ####################
-/*
+
 module "step_function" {
   source  = "terraform-aws-modules/step-functions/aws"
   version = "~> 2.0"
@@ -225,7 +215,7 @@ module "step_function" {
 }
 EOF
 }
-*/
+
 ####################
 # Lambda
 ####################
@@ -239,15 +229,42 @@ module "lambda_function" {
   handler       = "main.lambda_handler"
   source_path   = "./source-default/main.py"
   runtime       = "python3.8"
+  timeout       = 15
+  publish       = true
 
-  publish = true
-
+  environment_variables = {
+    "STEP_ARN" : module.step_function.state_machine_arn
+  }
 
   allowed_triggers = {
     AllowExecutionFromAPIGateway = {
-      service = "apigateway"
-      //source_arn = "${aws_api_gateway_rest_api.main.execution_arn}/*/*"
-      source_arn = "${aws_apigatewayv2_api.main.execution_arn}/*/*"
+      service    = "apigateway"
+      source_arn = "${module.api_gateway.apigatewayv2_api_execution_arn}/*/*"
+      //source_arn = "${aws_apigatewayv2_api.main.execution_arn}/*/*"
     }
   }
+
+  attach_policy_statements = true
+  policy_statements = {
+    # Allow failures to be sent to SQS queue
+    ssm = {
+      effect = "Allow",
+      actions = [
+        "states:StartExecution",
+        //"states:ListStateMachines",
+        //"states:ListActivities",
+        //"states:DescribeStateMachine",
+        //"states:DescribeStateMachineForExecution",
+        // "states:ListExecutions",
+        // "states:DescribeExecution",
+        // "states:GetExecutionHistory",
+        //"states:DescribeActivity"
+      ],
+      resources = [module.step_function.state_machine_arn]
+    }
+  }
+
+  #add xray policy
+  attach_tracing_policy = true
+  tags                  = local.tags
 }

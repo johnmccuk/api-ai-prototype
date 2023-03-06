@@ -2,12 +2,16 @@
 # import sys
 # import logging
 import json
+import os
+import boto3
 
 '''
 Put any pip installs in the requirements.txt file
 '''
 
 # logging.info("Cached code goes here")
+
+client = boto3.client('stepfunctions')
 
 
 def lambda_handler(event, context):
@@ -27,6 +31,12 @@ def lambda_handler(event, context):
     else:
         statusCode = 202
         returnBody = {"message": "generation process started"}
+
+        response = client.start_execution(
+            stateMachineArn=os.environ["STEP_ARN"],
+            name=context.aws_request_id,
+            input=event["body"]
+        )
 
     return {
         "statusCode": statusCode,
