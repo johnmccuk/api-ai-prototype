@@ -1,6 +1,8 @@
 # Ignore everything:
 *
 
+builds/
+
 # Except for lambda functions codes:
 !main.py
 !requirements.txt
