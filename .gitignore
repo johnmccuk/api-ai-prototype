@@ -30,3 +30,4 @@ override.tf.json
 
 # ignore lambda zipped files
 source.zip
+config/*.tfvars
