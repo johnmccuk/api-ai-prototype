@@ -1,0 +1,11 @@
+# Ignore everything:
+*
+
+builds/
+
+# Except for lambda functions codes:
+!main.py
+!requirements.txt
+!setup.cfg
+!README.md
+!.gitignore

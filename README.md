@@ -1,7 +1,6 @@
-# terraform-project-template
+# api-ai-prototype
 
-A base template for building Terraform projects based on (terraform best practices
-)[https://github.com/johnmccuk/terraform-best-practices.git]
+A prototype API for generating content from AI
 
 ## Setting up State storage
 
@@ -25,6 +24,5 @@ see (tips to deal with lambda functions)[https://github.com/johnmccuk/terraform-
 
 See `lambda.tf.example` for an example of how to use this method to zip up Lambda code.
 
-# New Project Title
-
-_Remove template readme text and add new project readme here_
+A base template for building Terraform projects based on (terraform best practices
+)[https://github.com/johnmccuk/terraform-best-practices.git]
