@@ -166,7 +166,8 @@ module "api_gateway" {
 }
 
 resource "aws_cloudwatch_log_group" "logs" {
-  name = local.name
+  name              = local.name
+  retention_in_days = 5
 }
 
 
@@ -174,31 +175,194 @@ resource "aws_cloudwatch_log_group" "logs" {
 # AWS Step Function
 ####################
 
-module "step_function" {
-  source  = "terraform-aws-modules/step-functions/aws"
-  version = "~> 2.0"
-
-  name = "${random_pet.this.id}-step"
-
-  definition = <<EOF
+locals {
+  definition_template = <<EOF
 {
-  "Comment": "A Hello World example of the Amazon States Language using Pass states",
-  "StartAt": "Hello",
+  "Comment": "A description of my state machine",
+  "StartAt": "Create Code",
   "States": {
-    "Hello": {
-      "Type": "Pass",
-      "Result": "Hello",
-      "Next": "World"
+    "Create Code": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "OutputPath": "$.Payload",
+      "Parameters": {
+        "Payload.$": "$",
+        "FunctionName": "${module.lambda_create_code.lambda_function_arn}:$LATEST"
+      },
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException",
+            "Lambda.TooManyRequestsException"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 2,
+          "BackoffRate": 2
+        }
+      ],
+      "Next": "Save Code"
     },
-    "World": {
-      "Type": "Pass",
-      "Result": "World",
-      "End": true
+    "Save Code": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "OutputPath": "$.Payload",
+      "Parameters": {
+        "Payload.$": "$",
+        "FunctionName": "${module.lambda_save_code.lambda_function_arn}:$LATEST"
+      },
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException",
+            "Lambda.TooManyRequestsException"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 2,
+          "BackoffRate": 2
+        }
+      ],
+      "Next": "Success"
+    },
+    "Success": {
+      "Type": "Succeed"
     }
   }
 }
 EOF
 }
+
+module "step_function" {
+  source  = "terraform-aws-modules/step-functions/aws"
+  version = "~> 2.0"
+
+  depends_on = [
+    aws_cloudwatch_log_group.logs
+  ]
+
+  name = "${random_pet.this.id}-step"
+
+  definition = local.definition_template
+
+  logging_configuration = {
+    include_execution_data = true
+    level                  = "ALL"
+  }
+  tags = local.tags
+
+  use_existing_cloudwatch_log_group = true
+  cloudwatch_log_group_name         = aws_cloudwatch_log_group.logs.name
+  //cloudwatch_log_group_retention_in_days = 5
+
+  service_integrations = {
+
+    lambda = {
+      lambda = [
+        module.lambda_create_code.lambda_function_arn,
+        "${module.lambda_create_code.lambda_function_arn}:*",
+        module.lambda_save_code.lambda_function_arn,
+        "${module.lambda_save_code.lambda_function_arn}:*",
+      ]
+    }
+
+    xray = {
+      xray = true
+    }
+
+  }
+  /*
+  attach_policy_json = true
+  policy_json        = <<EOF
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Action": "sts:AssumeRole",
+      "Principal": {
+        "Service": "states.amazonaws.com"
+      },
+      "Effect": "Allow",
+      "Sid": ""
+    }
+  ]
+}
+EOF
+*/
+}
+
+####################
+# S3 Bucket
+####################
+
+module "s3_bucket_for_code" {
+  source = "terraform-aws-modules/s3-bucket/aws"
+
+  bucket = "${random_pet.this.id}-code-store"
+
+  # Allow deletion of non-empty bucket
+  force_destroy = true
+
+  server_side_encryption_configuration = {
+    rule = {
+      apply_server_side_encryption_by_default = {
+        sse_algorithm = "AES256"
+      }
+    }
+  }
+}
+/*
+resource "aws_iam_role" "role" {
+  name = "${random_pet.this.id}-s3-access"
+  path = "/"
+
+  assume_role_policy = <<EOF
+    {
+    "Version": "2012-10-17",
+    "Statement": [
+      {
+        "Action": "sts:AssumeRole",
+        "Principal": {
+          "Service": "lambda.amazonaws.com"
+        },
+        "Effect": "Allow",
+        "Sid": ""
+      }
+    ]
+  }
+  EOF
+}
+
+#Created Policy for IAM Role
+resource "aws_iam_policy" "policy" {
+  name        = "${random_pet.this.id}-code-policy"
+  description = "Policy for lambda access to S3"
+  policy      = <<EOF
+   {
+"Version": "2012-10-17",
+"Statement": [
+    {
+        "Effect": "Allow",
+        "Action": [
+            "s3:ListBucket"
+        ],
+        "Resource": "${module.s3_bucket_for_code.s3_bucket_arn}"
+    },
+    {
+        "Effect": "Allow",
+        "Action": [
+            "s3:PutObject"
+        ],
+        "Resource": "${module.s3_bucket_for_code.s3_bucket_arn}/*"
+    },
+]
+
+} 
+    EOF
+}
+*/
 
 ####################
 # Lambda
@@ -208,8 +372,8 @@ module "lambda_function" {
   source  = "terraform-aws-modules/lambda/aws"
   version = "~> 3.0"
 
-  function_name = "${random_pet.this.id}-lambda"
-  description   = "My awesome lambda function"
+  function_name = "${random_pet.this.id}-validate"
+  description   = "Validates request before executing step function"
   handler       = "main.lambda_handler"
   source_path   = "./source-default/main.py"
   runtime       = "python3.8"
@@ -224,7 +388,6 @@ module "lambda_function" {
     AllowExecutionFromAPIGateway = {
       service    = "apigateway"
       source_arn = "${module.api_gateway.apigatewayv2_api_execution_arn}/*/*"
-      //source_arn = "${aws_apigatewayv2_api.main.execution_arn}/*/*"
     }
   }
 
@@ -237,6 +400,65 @@ module "lambda_function" {
         "states:StartExecution",
       ],
       resources = [module.step_function.state_machine_arn]
+    }
+  }
+
+  #add xray policy
+  attach_tracing_policy = true
+  tags                  = local.tags
+}
+
+module "lambda_create_code" {
+  source  = "terraform-aws-modules/lambda/aws"
+  version = "~> 3.0"
+
+  function_name = "${random_pet.this.id}-create-code"
+  description   = "Calls Open AI and retrieves generated text content"
+  handler       = "main.lambda_handler"
+  source_path   = "./source-create-code/main.py"
+  runtime       = "python3.8"
+  timeout       = 60
+  publish       = true
+
+  environment_variables = {
+    "OPEN_AI_KEY" : var.open_ai_key
+    "OPEN_AI_ORG" : var.open_ai_org
+    "OPEN_AI_TEXT_MODEL" : var.open_ai_text_model
+  }
+
+  #add xray policy
+  attach_tracing_policy = true
+  tags                  = local.tags
+}
+
+module "lambda_save_code" {
+  source  = "terraform-aws-modules/lambda/aws"
+  version = "~> 3.0"
+
+  function_name = "${random_pet.this.id}-save-code"
+  description   = "Save the passed data to an S3 bucket"
+  handler       = "main.lambda_handler"
+  source_path   = "./source-save-code/main.py"
+  runtime       = "python3.8"
+  timeout       = 60
+  publish       = true
+
+  environment_variables = {
+    "BUCKET" : module.s3_bucket_for_code.s3_bucket_id
+  }
+
+  attach_policy_statements = true
+  policy_statements = {
+    s3 = {
+      effect = "Allow",
+      actions = [
+        "s3:PutObject",
+        "s3:PutObjectAcl"
+      ],
+      resources = [
+        "arn:aws:s3:::${module.s3_bucket_for_code.s3_bucket_id}/*",
+        "arn:aws:s3:::${module.s3_bucket_for_code.s3_bucket_id}"
+      ]
     }
   }
 

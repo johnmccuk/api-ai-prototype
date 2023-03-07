@@ -13,6 +13,8 @@ Put any pip installs in the requirements.txt file
 
 client = boto3.client('stepfunctions')
 
+description_length = 100
+
 
 def lambda_handler(event, context):
     "Endpoint validator and starts Step Function"
@@ -20,18 +22,16 @@ def lambda_handler(event, context):
     statusCode = 422
     body = json.loads(event["body"])
 
-    if "phrase" not in body:
-        returnBody = {"error": "phrase field missing"}
+    if "description" not in body:
+        returnBody = {"error": "description field missing"}
 
-    elif type(body["phrase"]) != list:
-        returnBody = {"error": "phrase field must be a list"}
+    elif len(body["description"]) > description_length:
+        returnBody = {"error": "phrase field must less than " +
+                      str(description_length) + " chars"}
 
-    elif len(body["phrase"]) < 3:
-        returnBody = {"error": "phrase field must contain at least 3 phrases"}
     else:
         statusCode = 202
         returnBody = {"message": "generation process started"}
-
         response = client.start_execution(
             stateMachineArn=os.environ["STEP_ARN"],
             name=context.aws_request_id,
