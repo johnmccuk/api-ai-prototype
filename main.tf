@@ -164,23 +164,7 @@ module "api_gateway" {
     }
   }
 }
-/*
-resource "aws_apigatewayv2_stage" "dev" {
-  api_id = module.api_gateway.apigatewayv2_api_id
-  name   = "dev"
-}
 
-resource "aws_apigatewayv2_integration" "get" {
-  api_id           = module.api_gateway.apigatewayv2_api_id
-  integration_type = "MOCK"
-}
-
-resource "aws_apigatewayv2_route" "example" {
-  api_id    = module.api_gateway.apigatewayv2_api_id
-  route_key = "GET /pets"
-  target    = "integrations/${aws_apigatewayv2_integration.get.id}"
-}
-*/
 resource "aws_cloudwatch_log_group" "logs" {
   name = local.name
 }
@@ -251,14 +235,6 @@ module "lambda_function" {
       effect = "Allow",
       actions = [
         "states:StartExecution",
-        //"states:ListStateMachines",
-        //"states:ListActivities",
-        //"states:DescribeStateMachine",
-        //"states:DescribeStateMachineForExecution",
-        // "states:ListExecutions",
-        // "states:DescribeExecution",
-        // "states:GetExecutionHistory",
-        //"states:DescribeActivity"
       ],
       resources = [module.step_function.state_machine_arn]
     }
