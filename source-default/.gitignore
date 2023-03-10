@@ -3,6 +3,8 @@
 
 builds/
 
+config/*.tvars
+
 # Except for lambda functions codes:
 !main.py
 !requirements.txt
