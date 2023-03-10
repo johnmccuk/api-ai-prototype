@@ -305,6 +305,12 @@ module "s3_bucket_for_code" {
   # Allow deletion of non-empty bucket
   force_destroy = true
 
+  # S3 bucket-level Public Access Block configuration
+  block_public_acls       = true
+  block_public_policy     = true
+  ignore_public_acls      = true
+  restrict_public_buckets = true
+
   server_side_encryption_configuration = {
     rule = {
       apply_server_side_encryption_by_default = {
